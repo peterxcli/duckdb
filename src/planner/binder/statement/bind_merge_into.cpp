@@ -178,8 +178,14 @@ void RewriteMergeBindings(unique_ptr<Expression> &expr, const vector<ColumnBindi
 }
 
 void RewriteMergeBindings(LogicalOperator &op, const vector<ColumnBinding> &source_bindings, idx_t new_table_index) {
+	if (op.type == LogicalOperatorType::LOGICAL_PROJECTION && op.Cast<LogicalProjection>().table_index == new_table_index) {
+		return;
+	}
 	LogicalOperatorVisitor::EnumerateExpressions(
 	    op, [&](unique_ptr<Expression> *child) { RewriteMergeBindings(*child, source_bindings, new_table_index); });
+	for (auto &child : op.children) {
+		RewriteMergeBindings(*child, source_bindings, new_table_index);
+	}
 }
 
 LogicalGet &ExtractLogicalGet(LogicalOperator &op) {
