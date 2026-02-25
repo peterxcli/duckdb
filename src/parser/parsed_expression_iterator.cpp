@@ -119,6 +119,9 @@ void ParsedExpressionIterator::EnumerateChildren(
 		if (subquery_expr.child) {
 			callback(subquery_expr.child);
 		}
+		if (subquery_expr.subquery) {
+			EnumerateQueryNodeChildren(*subquery_expr.subquery->node, callback);
+		}
 		break;
 	}
 	case ExpressionClass::WINDOW: {
@@ -295,7 +298,9 @@ void ParsedExpressionIterator::EnumerateQueryNodeChildren(
 			expr_callback(sel_node.qualify);
 		}
 
-		EnumerateTableRefChildren(*sel_node.from_table.get(), expr_callback, ref_callback);
+		if (sel_node.from_table) {
+			EnumerateTableRefChildren(*sel_node.from_table.get(), expr_callback, ref_callback);
+		}
 		break;
 	}
 	case QueryNodeType::SET_OPERATION_NODE: {

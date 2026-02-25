@@ -245,7 +245,7 @@ public:
 	static void BindView(ClientContext &context, const SelectStatement &stmt, const string &catalog_name,
 	                     const string &schema_name, optional_ptr<LogicalDependencyList> dependencies,
 	                     const vector<string> &aliases, vector<LogicalType> &result_types,
-	                     vector<string> &result_names);
+	                     vector<string> &result_names, optional_ptr<Binder> parent = nullptr);
 
 	void SearchSchema(CreateInfo &info);
 	SchemaCatalogEntry &BindSchema(CreateInfo &info);

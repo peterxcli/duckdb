@@ -17,6 +17,7 @@
 #include "duckdb/parser/constraints/unique_constraint.hpp"
 #include "duckdb/parser/expression/constant_expression.hpp"
 #include "duckdb/parser/expression/function_expression.hpp"
+#include "duckdb/parser/expression/parameter_expression.hpp"
 #include "duckdb/parser/expression/subquery_expression.hpp"
 #include "duckdb/parser/parsed_data/create_index_info.hpp"
 #include "duckdb/parser/parsed_data/create_macro_info.hpp"
@@ -161,10 +162,49 @@ void Binder::SetCatalogLookupCallback(catalog_entry_callback_t callback) {
 	entry_retriever.SetCallback(std::move(callback));
 }
 
+static void SubstituteParameters(unique_ptr<ParsedExpression> &expr, BoundParameterMap &parameters);
+
+static void SubstituteParameters(QueryNode &node, BoundParameterMap &parameters) {
+	ParsedExpressionIterator::EnumerateQueryNodeChildren(node, [&](unique_ptr<ParsedExpression> &child) {
+		SubstituteParameters(child, parameters);
+	});
+}
+
+static void SubstituteParameters(unique_ptr<ParsedExpression> &expr, BoundParameterMap &parameters) {
+	if (!expr) {
+		return;
+	}
+	if (expr->type == ExpressionType::VALUE_PARAMETER) {
+		auto &parameter = expr->Cast<ParameterExpression>();
+		auto &parameter_data = parameters.GetParameterData();
+		auto it = parameter_data.find(parameter.identifier);
+		if (it != parameter_data.end() && it->second.GetValue().type().id() != LogicalTypeId::INVALID) {
+			auto constant = make_uniq<ConstantExpression>(it->second.GetValue());
+			constant->SetAlias(parameter.GetAlias());
+			expr = std::move(constant);
+			return;
+		}
+	}
+	ParsedExpressionIterator::EnumerateChildren(*expr, [&](unique_ptr<ParsedExpression> &child) {
+		SubstituteParameters(child, parameters);
+	});
+}
+
+static bool HasParameters(QueryNode &node) {
+	bool has_parameters = false;
+	ParsedExpressionIterator::EnumerateQueryNodeChildren(node, [&](unique_ptr<ParsedExpression> &child) {
+		if (child && child->HasParameter()) {
+			has_parameters = true;
+		}
+	});
+	return has_parameters;
+}
+
 void Binder::BindView(ClientContext &context, const SelectStatement &stmt, const string &catalog_name,
                       const string &schema_name, optional_ptr<LogicalDependencyList> dependencies,
-                      const vector<string> &aliases, vector<LogicalType> &result_types, vector<string> &result_names) {
-	auto view_binder = Binder::CreateBinder(context);
+                      const vector<string> &aliases, vector<LogicalType> &result_types, vector<string> &result_names,
+                      optional_ptr<Binder> parent) {
+	auto view_binder = Binder::CreateBinder(context, parent);
 	auto &catalog = Catalog::GetCatalog(context, catalog_name);
 
 	if (dependencies) {
@@ -191,11 +231,17 @@ void Binder::BindView(ClientContext &context, const SelectStatement &stmt, const
 }
 
 void Binder::BindCreateViewInfo(CreateViewInfo &base) {
+	if (GetParameters()) {
+		SubstituteParameters(*base.query->node, *GetParameters());
+		if (HasParameters(*base.query->node)) {
+			SetAlwaysRequireRebind();
+		}
+	}
 	optional_ptr<LogicalDependencyList> dependencies;
 	if (Settings::Get<EnableViewDependenciesSetting>(context)) {
 		dependencies = base.dependencies;
 	}
-	BindView(context, *base.query, base.catalog, base.schema, dependencies, base.aliases, base.types, base.names);
+	BindView(context, *base.query, base.catalog, base.schema, dependencies, base.aliases, base.types, base.names, this);
 }
 
 SchemaCatalogEntry &Binder::BindCreateFunctionInfo(CreateInfo &info) {
