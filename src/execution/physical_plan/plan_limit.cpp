@@ -11,7 +11,23 @@
 
 namespace duckdb {
 
-bool UseBatchLimit(PhysicalOperator &child_node, BoundLimitNode &limit_val, BoundLimitNode &offset_val) {
+static optional_idx GetLimit(const BoundLimitNode &limit_val, const BoundLimitNode &offset_val) {
+	if (limit_val.Type() != LimitNodeType::CONSTANT_VALUE) {
+		return optional_idx();
+	}
+	if (offset_val.Type() != LimitNodeType::CONSTANT_VALUE && offset_val.Type() != LimitNodeType::UNSET) {
+		return optional_idx();
+	}
+
+	idx_t total = limit_val.GetConstantValue();
+	if (offset_val.Type() == LimitNodeType::CONSTANT_VALUE &&
+	    !TryAddOperator::Operation(total, offset_val.GetConstantValue(), total)) {
+		return optional_idx();
+	}
+	return optional_idx(total);
+}
+
+bool UseBatchLimit(PhysicalOperator &child_node, const BoundLimitNode &limit_val, const BoundLimitNode &offset_val) {
 #ifdef DUCKDB_ALTERNATIVE_VERIFY
 	return true;
 #else
@@ -36,34 +52,9 @@ bool UseBatchLimit(PhysicalOperator &child_node, BoundLimitNode &limit_val, Boun
 	// as the batch limit materializes this many rows PER thread
 	static constexpr const idx_t BATCH_LIMIT_THRESHOLD = 10000;
 
-	if (limit_val.Type() != LimitNodeType::CONSTANT_VALUE) {
-		return false;
-	}
-	if (offset_val.Type() == LimitNodeType::EXPRESSION_VALUE) {
-		return false;
-	}
-	idx_t total_offset = limit_val.GetConstantValue();
-	if (offset_val.Type() == LimitNodeType::CONSTANT_VALUE) {
-		total_offset += offset_val.GetConstantValue();
-	}
-	return total_offset <= BATCH_LIMIT_THRESHOLD;
+	auto total_limit = GetLimit(limit_val, offset_val);
+	return total_limit.IsValid() && total_limit.GetIndex() <= BATCH_LIMIT_THRESHOLD;
 #endif
-}
-
-static optional_idx GetLimit(BoundLimitNode &limit_val, BoundLimitNode &offset_val) {
-	if (limit_val.Type() != LimitNodeType::CONSTANT_VALUE) {
-		return optional_idx();
-	}
-	if (offset_val.Type() != LimitNodeType::CONSTANT_VALUE && offset_val.Type() != LimitNodeType::UNSET) {
-		return optional_idx();
-	}
-
-	idx_t total = limit_val.GetConstantValue();
-	if (offset_val.Type() == LimitNodeType::CONSTANT_VALUE &&
-	    !TryAddOperator::Operation(total, offset_val.GetConstantValue(), total)) {
-		return optional_idx();
-	}
-	return optional_idx(total);
 }
 
 static bool CanUseLimitedDistinct(const PhysicalHashAggregate &hash_aggregate) {
