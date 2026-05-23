@@ -1,6 +1,7 @@
 #include "duckdb/common/types/row/partitioned_tuple_data.hpp"
 
 #include "duckdb/common/radix_partitioning.hpp"
+#include "duckdb/common/spill_metrics.hpp"
 #include "duckdb/common/types/row/tuple_data_iterator.hpp"
 #include "duckdb/common/printer.hpp"
 #include "duckdb/storage/buffer_manager.hpp"
@@ -276,6 +277,8 @@ void PartitionedTupleData::Repartition(ClientContext &context, PartitionedTupleD
 		new_partitioned_data.Combine(*this);
 		return;
 	}
+
+	SpillMetrics::OnTupleRepartition(count, data_size);
 
 	PartitionedTupleDataAppendState append_state;
 	new_partitioned_data.InitializeAppendState(append_state);

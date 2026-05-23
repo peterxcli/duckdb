@@ -5,6 +5,7 @@
 #include "duckdb/common/exception.hpp"
 #include "duckdb/common/radix_partitioning.hpp"
 #include "duckdb/common/row_operations/row_operations.hpp"
+#include "duckdb/common/spill_metrics.hpp"
 #include "duckdb/common/types/null_value.hpp"
 #include "duckdb/common/types/row/tuple_data_iterator.hpp"
 #include "duckdb/common/vector_operations/vector_operations.hpp"
@@ -127,6 +128,7 @@ unique_ptr<PartitionedTupleData> GroupedAggregateHashTable::AcquirePartitionedDa
 }
 
 void GroupedAggregateHashTable::Abandon() {
+	SpillMetrics::OnAggregateAbandon(radix_bits);
 	if (radix_bits >= UNPARTITIONED_RADIX_BITS_THRESHOLD) {
 		// Flush/unpin unpartitioned data and append to partitioned data
 		if (unpartitioned_data) {

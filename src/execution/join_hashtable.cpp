@@ -3,6 +3,7 @@
 #include "duckdb/common/enums/join_type.hpp"
 #include "duckdb/common/exception.hpp"
 #include "duckdb/common/radix_partitioning.hpp"
+#include "duckdb/common/spill_metrics.hpp"
 #include "duckdb/common/vector_operations/vector_operations.hpp"
 #include "duckdb/execution/ht_entry.hpp"
 #include "duckdb/logging/log_manager.hpp"
@@ -1673,6 +1674,7 @@ bool JoinHashTable::PrepareExternalFinalize(const idx_t max_ht_size) {
 	}
 	D_ASSERT(Count() == count);
 
+	SpillMetrics::OnHashJoinExternalBuildRound(radix_bits);
 	return true;
 }
 
@@ -1737,6 +1739,7 @@ ProbeSpillLocalState ProbeSpill::RegisterThread() {
 }
 
 void ProbeSpill::Append(DataChunk &chunk, ProbeSpillLocalAppendState &local_state) {
+	SpillMetrics::OnHashJoinProbeSpillAppend(chunk.size());
 	local_state.local_partition->Append(*local_state.local_partition_append_state, chunk);
 }
 
@@ -1753,6 +1756,7 @@ void ProbeSpill::Finalize() {
 }
 
 void ProbeSpill::PrepareNextProbe() {
+	SpillMetrics::OnHashJoinProbeSpillRound();
 	global_spill_collection.reset();
 	auto &partitions = global_partitions->GetPartitions();
 	if (partitions.empty() || ht.current_partitions.CheckAllInvalid(partitions.size())) {

@@ -2,6 +2,7 @@
 
 #include "duckdb/common/radix_partitioning.hpp"
 #include "duckdb/common/row_operations/row_operations.hpp"
+#include "duckdb/common/spill_metrics.hpp"
 #include "duckdb/common/types/row/tuple_data_collection.hpp"
 #include "duckdb/common/types/row/tuple_data_iterator.hpp"
 #include "duckdb/execution/aggregate_hashtable.hpp"
@@ -488,7 +489,11 @@ void MaybeRepartition(ClientContext &context, RadixHTGlobalSinkState &gstate, Ra
 	}
 
 	if (total_size > gstate.GetThreadLimit()) {
+		const auto was_external = gstate.external.load(std::memory_order_relaxed);
 		if (gstate.config.SetRadixBitsToExternal()) {
+			if (!was_external && gstate.external) {
+				SpillMetrics::OnAggregateExternalTransition(gstate.config.GetRadixBits());
+			}
 			// We're approaching the memory limit, unpin the data
 			if (!lstate.abandoned_data) {
 				lstate.abandoned_data = make_uniq<RadixPartitionedTupleData>(
@@ -523,6 +528,7 @@ void MaybeRepartition(ClientContext &context, RadixHTGlobalSinkState &gstate, Ra
 	}
 
 	// We're out-of-sync with the global radix bits, repartition
+	SpillMetrics::OnAggregateRepartition(current_radix_bits, global_radix_bits);
 	ht.SetRadixBits(global_radix_bits);
 	ht.Repartition();
 }

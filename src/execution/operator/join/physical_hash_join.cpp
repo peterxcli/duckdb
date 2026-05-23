@@ -1,6 +1,7 @@
 #include "duckdb/execution/operator/join/physical_hash_join.hpp"
 
 #include "duckdb/common/radix_partitioning.hpp"
+#include "duckdb/common/spill_metrics.hpp"
 #include "duckdb/common/types/value_map.hpp"
 #include "duckdb/execution/expression_executor.hpp"
 #include "duckdb/execution/operator/aggregate/ungrouped_aggregate_state.hpp"
@@ -609,6 +610,7 @@ void HashJoinGlobalSinkState::ScheduleFinalize(Pipeline &pipeline, Event &event)
 void HashJoinGlobalSinkState::InitializeProbeSpill() {
 	auto guard = Lock();
 	if (!probe_spill) {
+		SpillMetrics::OnHashJoinProbeSpillInit(hash_table->GetRadixBits());
 		probe_spill = make_uniq<JoinHashTable::ProbeSpill>(*hash_table, context, probe_types);
 	}
 }
@@ -675,6 +677,10 @@ public:
 			}
 			local_hts.resize(repartition_threads);
 		}
+
+		SpillMetrics::OnHashJoinRepartition(sink.hash_table->GetRadixBits(), local_hts.size(),
+		                                     static_cast<idx_t>(reinterpret_cast<uintptr_t>(&op)),
+		                                     static_cast<idx_t>(reinterpret_cast<uintptr_t>(pipeline.get())));
 
 		auto &context = pipeline->GetClientContext();
 
@@ -954,8 +960,12 @@ SinkFinalizeType PhysicalHashJoin::Finalize(Pipeline &pipeline, Event &event, Cl
 		const auto max_partition_ht_size = sink.max_partition_size + ht.PointerTableSize(sink.max_partition_count);
 		const auto very_very_skewed = // No point in repartitioning if it's this skewed
 		    static_cast<double>(max_partition_ht_size) >= 0.8 * static_cast<double>(sink.total_size);
-		if (!very_very_skewed &&
-		    (max_partition_ht_size + sink.probe_side_requirement) > sink.temporary_memory_state->GetReservation()) {
+		const auto repartition_required =
+		    (max_partition_ht_size + sink.probe_side_requirement) > sink.temporary_memory_state->GetReservation();
+		SpillMetrics::OnHashJoinRepartitionDecision(very_very_skewed, repartition_required, ht.GetRadixBits(),
+		                                            sink.temporary_memory_state->GetReservation(), sink.total_size,
+		                                            max_partition_ht_size, sink.probe_side_requirement);
+		if (!very_very_skewed && repartition_required) {
 			// We have to repartition
 			const auto radix_bits_before = ht.GetRadixBits();
 			ht.SetRepartitionRadixBits(sink.temporary_memory_state->GetReservation(), sink.max_partition_size,

@@ -12,6 +12,7 @@
 #include "duckdb/storage/temporary_file_manager.hpp"
 #include "duckdb/storage/block_allocator.hpp"
 #include "duckdb/common/encryption_functions.hpp"
+#include "duckdb/common/spill_metrics.hpp"
 #include "duckdb/main/settings.hpp"
 
 namespace duckdb {
@@ -475,6 +476,7 @@ void StandardBufferManager::WriteTemporaryBuffer(MemoryTag tag, block_id_t block
 	if (buffer.AllocSize() == GetBlockAllocSize()) {
 		idx_t eviction_size = temporary_directory.handle->GetTempFile().WriteTemporaryBuffer(block_id, buffer);
 		evicted_data_per_tag[uint8_t(tag)] += eviction_size;
+		SpillMetrics::OnTemporaryBufferWrite(tag, eviction_size);
 		return;
 	}
 
@@ -488,6 +490,7 @@ void StandardBufferManager::WriteTemporaryBuffer(MemoryTag tag, block_id_t block
 	}
 
 	evicted_data_per_tag[uint8_t(tag)] += buffer.AllocSize();
+	SpillMetrics::OnTemporaryBufferWrite(tag, buffer.AllocSize());
 
 	// Create the file and write the size followed by the buffer contents.
 	auto &fs = FileSystem::GetFileSystem(db);
@@ -527,6 +530,7 @@ unique_ptr<FileBuffer> StandardBufferManager::ReadTemporaryBuffer(QueryContext c
 		    context, id, std::move(reusable_buffer), &eviction_size);
 
 		evicted_data_per_tag[uint8_t(tag)] -= eviction_size;
+		SpillMetrics::OnTemporaryBufferRead(tag, eviction_size);
 
 		return buffer;
 	}
@@ -544,6 +548,7 @@ unique_ptr<FileBuffer> StandardBufferManager::ReadTemporaryBuffer(QueryContext c
 
 	// Allocate a buffer of the file's size and read the data into that buffer.
 	auto buffer = ConstructManagedBuffer(block_size, block_header_size, std::move(reusable_buffer));
+	SpillMetrics::OnTemporaryBufferRead(tag, buffer->AllocSize());
 
 	if (EncryptTemporaryFiles()) {
 		// encrypted
