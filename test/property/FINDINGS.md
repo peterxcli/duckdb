@@ -3,6 +3,23 @@
 Found against `v1.6.0-dev13151` (relassert build, macOS arm64). Ordered roughly by severity.
 Each entry that the tests must work around is referenced by a `KNOWN ISSUE` comment in the test code.
 
+Status (re-verified against `v1.6.0-dev13791`, upstream main `8616efa9da`):
+
+| # | finding | status |
+|---|---|---|
+| 1 | `last_day` INTERNAL error | fixed upstream (duckdb/duckdb#24973, PR #24974) |
+| 2 | `date_trunc('week'/'isoyear')` signed overflow UB | filed as duckdb/duckdb#25107 |
+| 3 | TIMETZ offset formatting | fixed upstream (duckdb/duckdb#24987, PR #24988) |
+| 4 | `list_sort` INTERVAL ordering | filed as duckdb/duckdb#25108 |
+| 5 | `Value::ToSQLString()` STRUCT/BIT/UNION | fixed upstream (PR duckdb/duckdb#24975) |
+| 6 | INTERVAL 10-digit hours parse asymmetry | filed as duckdb/duckdb#25109 |
+| 7 | `list_contains` vs `list_position` NULL semantics | intended per duckdb/duckdb#16489 (`list_position` deliberately matches NULLs for PostgreSQL compatibility) |
+| 8 | week-based parts fail on minimum year | filed as duckdb/duckdb#25110 |
+| 9 | Sort round-trips types through SQL strings | filed as duckdb/duckdb#25111 |
+| 10 | JSON -> DECIMAL precision loss | fixed upstream (duckdb/duckdb#24989, PR #25006) |
+| 11 | `INT_MIN % -1` errors | filed as duckdb/duckdb#25112 |
+| 12 | `levenshtein` counts bytes | filed as duckdb/duckdb#25113 |
+
 ## 1. `last_day` at the maximum date raises an INTERNAL error (invalidates the database)
 
 ```sql
